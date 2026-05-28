@@ -1,5 +1,7 @@
 # Todo-App - WebTech Projekt (Aufgabe 2)
 
+## Gruppe Elmo
+
 Dies ist eine erweiterte Full-Stack Todo-Anwendung mit GraphQL API und MongoDB, entwickelt im Rahmen des Web-Technologie-Kurses. Sie besteht aus einem Node.js-Backend mit GraphQL und einer dokumentenbasierten MongoDB-Datenbank, ergänzt um ein modernes Frontend mit Apollo Client.
 
 ## Features
@@ -84,16 +86,6 @@ npm run dev
 ```
 
 Die Seite ist nun erreichbar über `http://localhost:5173/`.
-
----
-
-## API-Dokumentation
-
-Die API ist nach dem OpenAPI 3.0 Standard spezifiziert.
-
-* **Spezifikations-Datei:** Die rohe YAML-Datei befindet sich unter `backend/docs/openapi.yaml`.
-* **Interaktive Swagger-UI:** Nachdem das Backend gestartet wurde, können Sie die interaktive Dokumentation unter folgender URL aufrufen:
-  * [http://localhost:3000/docs](http://localhost:3000/docs)
 
 ---
 
