@@ -1,9 +1,12 @@
-// src/App.jsx
 import { useEffect, useState } from 'react';
 import { gql, useQuery } from '@apollo/client';
 import { saveTodos, loadTodos } from './db.js';
 import { TodoCard } from './components/ToDoCard.jsx';
 import { ChatWindow } from './components/ChatWindow.jsx';
+
+import { AuthProvider } from './auth/AuthContext.jsx';
+import ProtectedRoute from './auth/ProtectedRoute.jsx';
+import UserMenu from './auth/UserMenu.jsx';
 
 const TODOS_QUERY = gql`
   query {
@@ -13,7 +16,8 @@ const TODOS_QUERY = gql`
   }
 `;
 
-export default function App() {
+// Deine bestehende App-Logik — in eigene Komponente ausgelagert
+function AppContent() {
   const [todos, setTodos] = useState([]);
   const [selectedTodoId, setSelectedTodoId] = useState(null);
   const { data, loading } = useQuery(TODOS_QUERY);
@@ -32,12 +36,18 @@ export default function App() {
 
   return (
     <div style={{ padding: '20px' }}>
-      <h1>Todos</h1>
+      {/* NEU: User-Menü rechts oben */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1>Todos</h1>
+        <UserMenu />
+      </div>
+
+      {/* Dein bestehender Inhalt — unverändert */}
       <div id="todo-list">
         {todos.map(todo => (
-          <TodoCard 
-            key={todo.id} 
-            todo={todo} 
+          <TodoCard
+            key={todo.id}
+            todo={todo}
             onOpenChat={() => setSelectedTodoId(todo.id)}
           />
         ))}
@@ -46,5 +56,16 @@ export default function App() {
         <ChatWindow todoId={selectedTodoId} onClose={() => setSelectedTodoId(null)} />
       )}
     </div>
+  );
+}
+
+// NEU: AuthProvider und ProtectedRoute wrappen alles
+export default function App() {
+  return (
+    <AuthProvider>
+      <ProtectedRoute>
+        <AppContent />
+      </ProtectedRoute>
+    </AuthProvider>
   );
 }
