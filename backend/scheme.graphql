@@ -11,6 +11,9 @@ type Todo {
   createdAt: String!
   updatedAt: String!
   attachments: [Attachment]
+  ownerId: ID
+  collaborators: [ID]
+  isPublic: Boolean
 }
 
 type Comment {
@@ -54,9 +57,25 @@ enum Priority {
   HIGH
 }
 
+enum Role {
+  user
+  moderator
+  admin
+}
+
+type User {
+  id: ID!
+  email: String!
+  displayName: String
+  avatarUrl: String
+  role: Role!
+}
+
 type Query {
   todos(status: TodoStatus, tag: String, priority: Priority): [Todo!]!
   todo(id: ID!): Todo
+  me: User
+  users: [User!]!
 }
 
 type Mutation {
@@ -73,8 +92,16 @@ type Mutation {
     checked: Boolean
   ): Todo!
   deleteChecklistItem(todoId: ID!, itemId: ID!): Todo!
-  addAttachment(todoId: ID!, filename: String!, originalname: String!, url: String!): Todo!
+  addAttachment(
+    todoId: ID!
+    filename: String!
+    originalname: String!
+    url: String!
+  ): Todo!
   deleteAttachment(todoId: ID!, attachmentId: ID!): Todo!
+  addCollaborator(todoId: ID!, userId: ID!): Todo!
+  removeCollaborator(todoId: ID!, userId: ID!): Todo!
+  setUserRole(userId: ID!, role: Role!): User!
 }
 
 type Subscription {
@@ -88,6 +115,7 @@ input CreateTodoInput {
   priority: Priority
   dueDate: String
   tags: [String]
+  isPublic: Boolean
 }
 
 input UpdateTodoInput {
@@ -96,4 +124,5 @@ input UpdateTodoInput {
   priority: Priority
   dueDate: String
   tags: [String]
+  isPublic: Boolean
 }

@@ -1,53 +1,39 @@
-// backend/server.js
+require("dotenv").config();
 const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const fs = require("fs");
 const path = require("path");
-
 const { ApolloServer } = require("@apollo/server");
 const { expressMiddleware } = require("@as-integrations/express5");
-const {
-  ApolloServerPluginDrainHttpServer,
-} = require("@apollo/server/plugin/drainHttpServer");
-
+const { ApolloServerPluginDrainHttpServer } = require("@apollo/server/plugin/drainHttpServer");
 const { WebSocketServer } = require("ws");
 const { useServer } = require("graphql-ws/use/ws");
-
 const { makeExecutableSchema } = require("@graphql-tools/schema");
-
 const { resolvers } = require("./resolvers/index.js");
-// const { setupChatServer } = require("./websocket/chatServer");
 const { setupChatHandler } = require("./websocket/chatServer");
-const chatHandler = setupChatHandler();
 
-const typeDefs = fs.readFileSync(
-  path.join(__dirname, "./scheme.graphql"),
-  "utf8",
-);
+const { verifyToken, getGraphQLUser } = require("./middleware/auth");
+
+const chatHandler = setupChatHandler();
+const typeDefs = fs.readFileSync(path.join(__dirname, "./scheme.graphql"), "utf8");
 
 async function startServer() {
-  await mongoose.connect("mongodb://root:root@localhost:27017/todoapp", {
-    authSource: "admin",
-  });
+  await mongoose.connect(
+    process.env.MONGODB_URI || "mongodb://root:root@localhost:27017/todoapp",
+    { authSource: "admin" }
+  );
   console.log("MongoDB verbunden");
 
   const app = express();
   const httpServer = http.createServer(app);
+  const schema = makeExecutableSchema({ typeDefs, resolvers });
 
-  const schema = makeExecutableSchema({
-    typeDefs,
-    resolvers,
-  });
-
-  // ✅ WebSocketServer OHNE auto-attach
   const wsServer = new WebSocketServer({ noServer: true });
 
-  // ✅ Manuelles Upgrade-Handling für korrekte Route
   httpServer.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url, "http://localhost");
-
     if (url.pathname === "/graphql") {
       wsServer.handleUpgrade(req, socket, head, (ws) => {
         wsServer.emit("connection", ws, req);
@@ -57,21 +43,26 @@ async function startServer() {
     } else {
       socket.destroy();
     }
-    // /chat wird von setupChatServer behandelt
   });
 
-  // ✅ graphql-ws Handler registrieren
   useServer(
     {
       schema,
-      onConnect: (ctx) => {
-        console.log("✓ GraphQL WebSocket Client verbunden");
+      context: (ctx) => {
+        const token = ctx.connectionParams?.authorization?.replace("Bearer ", "");
+        if (!token) return { user: null };
+        try {
+          const jwt = require("jsonwebtoken");
+          const user = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-in-production");
+          return { user };
+        } catch {
+          return { user: null };
+        }
       },
-      onDisconnect: () => {
-        console.log("✗ GraphQL WebSocket Client disconnected");
-      },
+      onConnect: () => console.log("✓ GraphQL WebSocket Client verbunden"),
+      onDisconnect: () => console.log("✗ GraphQL WebSocket Client disconnected"),
     },
-    wsServer,
+    wsServer
   );
 
   const server = new ApolloServer({
@@ -92,17 +83,24 @@ async function startServer() {
 
   await server.start();
 
-  app.use(cors());
+  app.use(cors({ origin: process.env.ORIGIN || "http://localhost:5173", credentials: true }));
   app.use(express.json());
 
-  app.post("/graphql", expressMiddleware(server));
+  app.use(verifyToken);
+
+  const authRoutes = require("./routes/auth");
+  app.use("/auth", authRoutes);
+
+  app.post(
+    "/graphql",
+    expressMiddleware(server, {
+      context: async ({ req }) => ({ user: getGraphQLUser(req) }),
+    })
+  );
 
   const fileRoutes = require("./routes/files");
   app.use("/files", fileRoutes);
   app.use("/uploads", express.static("uploads"));
-
-  // ✅ Chat-Server danach - hängt seinen eigenen upgrade-Handler an
-  // setupChatServer(httpServer);
 
   httpServer.listen(4000, () => {
     console.log("✓ Server läuft auf http://localhost:4000");
