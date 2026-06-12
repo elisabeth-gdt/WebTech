@@ -12,7 +12,10 @@ export default defineConfig({
       },
       '/chat': {
         target: 'http://localhost:4000',
-        ws: true  // WebSocket Support!
+        ws: true
+      },
+      '/auth': {
+        target: 'http://localhost:4000',
       }
     }
   },
