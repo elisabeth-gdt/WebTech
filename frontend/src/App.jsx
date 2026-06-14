@@ -37,6 +37,7 @@ function AppContent() {
   return (
     <div style={{ padding: '20px' }}>
       {/* NEU: User-Menü rechts oben */}
+      {/* NEU: User-Menü rechts oben */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>Todos</h1>
         <UserMenu />
