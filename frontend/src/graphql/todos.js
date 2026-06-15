@@ -11,6 +11,8 @@ export const GET_TODOS = gql`
       tags
       createdAt
       updatedAt
+      ownerId
+      collaborators
     }
   }
 `
@@ -26,6 +28,9 @@ export const TODO_DETAIL = gql`
       tags
       createdAt
       updatedAt
+      ownerId
+      collaborators
+      isPublic
       attachments {
         id: id
         filename
@@ -51,6 +56,16 @@ export const TODO_DETAIL = gql`
         oldValue
         newValue
       }
+    }
+  }
+`
+
+export const GET_USERS = gql`
+  query GetUsers {
+    users {
+      id
+      email
+      displayName
     }
   }
 `
@@ -172,6 +187,24 @@ export const DELETE_ATTACHMENT = gql`
         originalname
         url
       }
+    }
+  }
+`
+
+export const ADD_COLLABORATOR = gql`
+  mutation AddCollaborator($todoId: ID!, $userId: ID!) {
+    addCollaborator(todoId: $todoId, userId: $userId) {
+      id
+      collaborators
+    }
+  }
+`
+
+export const REMOVE_COLLABORATOR = gql`
+  mutation RemoveCollaborator($todoId: ID!, $userId: ID!) {
+    removeCollaborator(todoId: $todoId, userId: $userId) {
+      id
+      collaborators
     }
   }
 `

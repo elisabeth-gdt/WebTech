@@ -1,4 +1,4 @@
-import { useAuth } from '../auth/AuthContext.jsx';
+import { useAuth } from '../AuthContext';
 
 export function TodoCard({ todo, onOpenChat }) {
   const { user } = useAuth();

@@ -1,14 +1,20 @@
 import { useState } from 'react'
-import { useQuery, useMutation } from '@apollo/client/react'
+import { useQuery, useMutation, useSubscription } from '@apollo/client/react'
 import {
   TODO_DETAIL,
+  GET_USERS,
   ADD_COMMENT,
   ADD_CHECKLIST_ITEM,
   UPDATE_CHECKLIST_ITEM,
   DELETE_CHECKLIST_ITEM,
   ADD_ATTACHMENT,
   DELETE_ATTACHMENT,
+  ADD_COLLABORATOR,
+  REMOVE_COLLABORATOR,
+  TODO_UPDATED,
+  TODO_DELETED,
 } from '../graphql/todos'
+import { useAuth } from '../AuthContext'
 
 function formatDate(value) {
   if (!value) return '-'
@@ -16,9 +22,20 @@ function formatDate(value) {
 }
 
 export function TodoDetailView({ todoId, onClose, onEdit }) {
+  const { user: currentUser } = useAuth()
+
   const { data, loading, error, refetch } = useQuery(TODO_DETAIL, {
     variables: { id: todoId },
     skip: !todoId,
+    fetchPolicy: 'network-only',
+  })
+
+  useSubscription(TODO_UPDATED, { onData: () => { if (todoId) refetch() } })
+  useSubscription(TODO_DELETED, { onData: () => { if (todoId) refetch() } })
+
+  const { data: usersData, error: usersError } = useQuery(GET_USERS, {
+    skip: !todoId,
+    fetchPolicy: 'network-only',
   })
 
   const [addComment] = useMutation(ADD_COMMENT)
@@ -27,16 +44,45 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
   const [deleteChecklistItem] = useMutation(DELETE_CHECKLIST_ITEM)
   const [addAttachment] = useMutation(ADD_ATTACHMENT)
   const [deleteAttachment] = useMutation(DELETE_ATTACHMENT)
+  const [addCollaborator] = useMutation(ADD_COLLABORATOR)
+  const [removeCollaborator] = useMutation(REMOVE_COLLABORATOR)
 
   const [commentForm, setCommentForm] = useState({ author: '', text: '' })
   const [checklistForm, setChecklistForm] = useState({ label: '', description: '' })
+  const [userSearch, setUserSearch] = useState('')
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [mutationError, setMutationError] = useState('')
 
   if (!todoId) return null
   if (loading) return <div className="detail-panel"><p>Lade Details...</p></div>
   if (error) return <div className="detail-panel"><p>Fehler beim Laden: {error.message}</p></div>
-  if (!data?.todo) return <div className="detail-panel"><p>To-Do nicht gefunden.</p></div>
+  if (!loading && data && !data.todo) return (
+    <div className="detail-panel">
+      <div style={{ padding: '20px', background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: '10px', color: '#92400e' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <strong>Kein Zugriff mehr</strong>
+          {onClose && (
+            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.1rem', cursor: 'pointer', color: '#92400e' }}>✕</button>
+          )}
+        </div>
+        <p style={{ margin: '8px 0 0 0', fontSize: '0.9rem' }}>Du wurdest aus diesem To-Do entfernt oder es wurde gelöscht.</p>
+      </div>
+    </div>
+  )
 
   const todo = data.todo
+  const isOwner = currentUser && String(todo.ownerId) === String(currentUser.id)
+  const allUsers = usersData?.users ?? []
+  const collaboratorIds = todo.collaborators ?? []
+  const nonCollaborators = allUsers.filter(
+    (u) => !collaboratorIds.includes(u.id) && u.id !== String(todo.ownerId)
+  )
+  const searchResults = userSearch.trim().length > 0
+    ? nonCollaborators.filter((u) => {
+        const q = userSearch.toLowerCase()
+        return (u.displayName || '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+      })
+    : []
 
   const handleAddComment = async (e) => {
     e.preventDefault()
@@ -51,8 +97,8 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
       })
       setCommentForm({ author: '', text: '' })
       await refetch()
-    } catch (error) {
-      console.error('Fehler beim Kommentar:', error)
+    } catch (err) {
+      setMutationError(err.message)
     }
   }
 
@@ -69,8 +115,8 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
       })
       setChecklistForm({ label: '', description: '' })
       await refetch()
-    } catch (error) {
-      console.error('Fehler beim Checklistenpunkt:', error)
+    } catch (err) {
+      setMutationError(err.message)
     }
   }
 
@@ -78,8 +124,8 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
     try {
       await updateChecklistItem({ variables: { todoId, itemId, checked: !checked } })
       await refetch()
-    } catch (error) {
-      console.error('Fehler beim Update:', error)
+    } catch (err) {
+      setMutationError(err.message)
     }
   }
 
@@ -87,8 +133,8 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
     try {
       await deleteChecklistItem({ variables: { todoId, itemId } })
       await refetch()
-    } catch (error) {
-      console.error('Fehler beim Löschen:', error)
+    } catch (err) {
+      setMutationError(err.message)
     }
   }
 
@@ -105,8 +151,8 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
       const { filename, originalname, url } = await response.json()
       await addAttachment({ variables: { todoId, filename, originalname, url } })
       await refetch()
-    } catch (error) {
-      console.error('Upload-Fehler:', error)
+    } catch (err) {
+      setMutationError(err.message)
     }
   }
 
@@ -114,8 +160,29 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
     try {
       await deleteAttachment({ variables: { todoId, attachmentId } })
       await refetch()
-    } catch (error) {
-      console.error('Fehler beim Löschen:', error)
+    } catch (err) {
+      setMutationError(err.message)
+    }
+  }
+
+  const handleAddCollaborator = async () => {
+    if (!selectedUserId) return
+    try {
+      await addCollaborator({ variables: { todoId, userId: selectedUserId } })
+      setSelectedUserId('')
+      setUserSearch('')
+      await refetch()
+    } catch (err) {
+      setMutationError(err.message)
+    }
+  }
+
+  const handleRemoveCollaborator = async (userId) => {
+    try {
+      await removeCollaborator({ variables: { todoId, userId } })
+      await refetch()
+    } catch (err) {
+      setMutationError(err.message)
     }
   }
 
@@ -123,17 +190,105 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
     <div className="detail-panel">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <h2 style={{ margin: 0 }}>{todo.title}</h2>
-        <button
-          onClick={() => onEdit(todo)}
-          style={{ background: '#3b82f6', color: 'white', padding: '8px 14px', border: 'none', cursor: 'pointer', borderRadius: '8px' }}
-        >
-          Bearbeiten
-        </button>
+        {isOwner && (
+          <button
+            onClick={() => onEdit(todo)}
+            style={{ background: '#3b82f6', color: 'white', padding: '8px 14px', border: 'none', cursor: 'pointer', borderRadius: '8px' }}
+          >
+            Bearbeiten
+          </button>
+        )}
       </div>
+      {mutationError && (
+        <div style={{ background: '#fee2e2', border: '1px solid #dc2626', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.9rem', color: '#991b1b' }}>
+          <span>Fehler: {mutationError}</span>
+          <button onClick={() => setMutationError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#991b1b' }}>✕</button>
+        </div>
+      )}
       <p><strong>Status:</strong> {todo.status}</p>
       <p><strong>Priorität:</strong> {todo.priority}</p>
       <p><strong>Fällig:</strong> {formatDate(todo.dueDate)}</p>
       <p><strong>Tags:</strong> {todo.tags?.length ? todo.tags.join(', ') : '-'}</p>
+
+      <hr style={{ margin: '16px 0', border: 'none', borderTop: '1px solid rgba(148, 163, 184, 0.2)' }} />
+
+      <h3>Mitarbeiter</h3>
+      <ul style={{ listStyle: 'none', padding: 0 }}>
+        {/* Owner immer zuerst */}
+        {(() => {
+          const owner = allUsers.find((x) => String(x.id) === String(todo.ownerId))
+          return (
+            <li style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'rgba(255,255,255,0.6)', borderRadius: '10px', marginBottom: '6px' }}>
+              <span>
+                {owner ? (owner.displayName || owner.email) : todo.ownerId}
+                <span style={{ marginLeft: '8px', background: '#3b82f6', color: 'white', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.75rem' }}>Eigentümer</span>
+              </span>
+            </li>
+          )
+        })()}
+        {/* Mitarbeiter */}
+        {collaboratorIds.map((uid) => {
+          const u = allUsers.find((x) => String(x.id) === String(uid))
+          return (
+            <li key={uid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'rgba(255,255,255,0.6)', borderRadius: '10px', marginBottom: '6px' }}>
+              <span>{u ? (u.displayName || u.email) : (allUsers.length === 0 ? `Nutzer (ID: ${uid})` : uid)}</span>
+              {isOwner && (
+                <button
+                  onClick={() => handleRemoveCollaborator(uid)}
+                  style={{ background: '#dc2626', color: 'white', border: 'none', padding: '4px 8px', cursor: 'pointer', borderRadius: '6px', fontSize: '0.85rem' }}
+                >
+                  Entfernen
+                </button>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      {isOwner && (
+        <div style={{ marginTop: '10px' }}>
+          {usersError && <p style={{ color: '#dc2626', fontSize: '0.85rem' }}>Fehler beim Laden der Nutzer: {usersError.message}</p>}
+          <input
+            value={userSearch}
+            onChange={(e) => { setUserSearch(e.target.value); setSelectedUserId('') }}
+            placeholder="Name oder E-Mail suchen..."
+            style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+          />
+          {userSearch.trim().length > 0 && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: '4px 0 0 0', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+              {searchResults.length === 0 && (
+                <li style={{ padding: '10px', color: '#999', fontSize: '0.9rem' }}>Kein Nutzer gefunden</li>
+              )}
+              {searchResults.map((u) => (
+                <li
+                  key={u.id}
+                  onClick={() => setSelectedUserId(u.id)}
+                  style={{
+                    padding: '10px',
+                    cursor: 'pointer',
+                    background: selectedUserId === u.id ? '#dbeafe' : 'white',
+                    borderBottom: '1px solid #f3f4f6',
+                    fontSize: '0.9rem',
+                  }}
+                >
+                  <strong>{u.displayName || u.email}</strong>
+                  {u.displayName && <span style={{ color: '#6b7280', marginLeft: '8px' }}>{u.email}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {selectedUserId && (
+            <button
+              onClick={handleAddCollaborator}
+              style={{ marginTop: '8px', background: '#10b981', color: 'white', border: 'none', padding: '8px 14px', cursor: 'pointer', borderRadius: '8px' }}
+            >
+              {(() => {
+                const u = allUsers.find((x) => String(x.id) === String(selectedUserId))
+                return `${u?.displayName || u?.email || 'Nutzer'} hinzufügen`
+              })()}
+            </button>
+          )}
+        </div>
+      )}
 
       <hr style={{ margin: '16px 0', border: 'none', borderTop: '1px solid rgba(148, 163, 184, 0.2)' }} />
 

@@ -67,6 +67,13 @@ function canDeleteComment(user, comment, todo) {
   return isAdmin(user) || isModerator(user) || isCommentOwner || isOwner(user, todo);
 }
 
+// ── Checklist permissions (collaborators may add/check off items) ─────────────
+
+function canEditChecklist(user, todo) {
+  if (!user) return false;
+  return isAdmin(user) || isOwner(user, todo) || isCollaborator(user, todo);
+}
+
 // ── Collaboration management ──────────────────────────────────────────────────
 
 function canManageCollaborators(user, todo) {
@@ -88,6 +95,7 @@ module.exports = {
   canDownloadAttachment,
   canAddComment,
   canDeleteComment,
+  canEditChecklist,
   canManageCollaborators,
   canManageUsers,
   isAdmin,

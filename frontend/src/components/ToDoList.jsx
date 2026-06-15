@@ -4,6 +4,7 @@ import { ChatWindow } from './ChatWindow'
 import { TodoDetailView } from './TodoDetailView'
 import { EditView } from './EditView'
 import UserMenu from '../auth/UserMenu'
+import { useAuth } from '../AuthContext'
 import {
   GET_TODOS,
   CREATE_TODO,
@@ -19,6 +20,7 @@ function emptyTodoForm() {
 }
 
 export function TodoList() {
+  const { user: currentUser } = useAuth()
   const [status, setStatus] = useState('')
   const [tag, setTag] = useState('')
   const [priority, setPriority] = useState('')
@@ -58,8 +60,20 @@ export function TodoList() {
   }
 
   useSubscription(TODO_CREATED, { onData: () => refetch() })
-  useSubscription(TODO_UPDATED, { onData: () => refetch() })
-  useSubscription(TODO_DELETED, { onData: () => { refetch(); setDetailTodoId(null) } })
+  useSubscription(TODO_UPDATED, {
+    onData: async () => {
+      const result = await refetch()
+      const updatedIds = (result.data?.todos ?? []).map((t) => t.id)
+      setOpenChats((prev) => new Set([...prev].filter((id) => updatedIds.includes(id))))
+    },
+  })
+  useSubscription(TODO_DELETED, {
+    onData: () => {
+      refetch()
+      setDetailTodoId(null)
+      setOpenChats(new Set())
+    },
+  })
 
   const handleCreateSubmit = async (e) => {
     e.preventDefault()
@@ -188,8 +202,12 @@ export function TodoList() {
                 {todo.priority && <small className="priority">{todo.priority}</small>}
               </div>
               <div className="todo-actions">
-                <button onClick={(e) => { e.stopPropagation(); setEditingTodo(todo) }} style={{ background: '#3b82f6', color: 'white', padding: '6px 12px', border: 'none', cursor: 'pointer', marginRight: '5px', borderRadius: '8px', fontSize: '0.9rem' }}>Bearbeiten</button>
-                <button onClick={(e) => { e.stopPropagation(); handleDelete(todo.id) }} style={{ background: '#dc2626', color: 'white', padding: '6px 12px', border: 'none', cursor: 'pointer', borderRadius: '8px', fontSize: '0.9rem' }}>Löschen</button>
+                {(currentUser?.id === todo.ownerId || currentUser?.role === 'admin') && (
+                  <>
+                    <button onClick={(e) => { e.stopPropagation(); setEditingTodo(todo) }} style={{ background: '#3b82f6', color: 'white', padding: '6px 12px', border: 'none', cursor: 'pointer', marginRight: '5px', borderRadius: '8px', fontSize: '0.9rem' }}>Bearbeiten</button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDelete(todo.id) }} style={{ background: '#dc2626', color: 'white', padding: '6px 12px', border: 'none', cursor: 'pointer', borderRadius: '8px', fontSize: '0.9rem' }}>Löschen</button>
+                  </>
+                )}
                 <button onClick={(e) => { e.stopPropagation(); setOpenChats((prev) => new Set([...prev, todo.id])) }} style={{ background: '#8b5cf6', color: 'white', padding: '6px 12px', border: 'none', cursor: 'pointer', marginLeft: '5px', borderRadius: '8px', fontSize: '0.9rem' }}>Chat</button>
               </div>
             </li>
@@ -202,7 +220,7 @@ export function TodoList() {
       )}
 
       {detailTodoId && !editingTodo && (
-        <TodoDetailView todoId={detailTodoId} onEdit={(todo) => setEditingTodo(todo)} />
+        <TodoDetailView todoId={detailTodoId} onClose={() => setDetailTodoId(null)} onEdit={(todo) => setEditingTodo(todo)} />
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '16px', marginTop: '16px' }}>

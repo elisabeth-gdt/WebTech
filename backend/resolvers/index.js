@@ -1,5 +1,6 @@
 const { GraphQLError } = require("graphql");
 const Todo = require("../models/Todo");
+const User = require("../models/User");
 const { todoService } = require("../services/todoService");
 const { pubsub, EVENTS } = require("../pubsub");
 const fs = require("fs");
@@ -39,8 +40,18 @@ const resolvers = {
       const user = requireUser(context);
       const todo = await Todo.findById(id);
       if (!todo) return null;
-      if (!auth.canReadTodo(user, todo)) forbidden();
+      if (!auth.canReadTodo(user, todo)) return null;
       return todo;
+    },
+
+    me: (_, __, context) => {
+      const user = requireUser(context);
+      return User.findById(user.id).exec();
+    },
+
+    users: (_, __, context) => {
+      requireUser(context);
+      return User.find().exec();
     },
   },
 
@@ -78,7 +89,7 @@ const resolvers = {
       const user = requireUser(context);
       const todo = await Todo.findById(todoId);
       if (!todo) throw new GraphQLError("Todo not found", { extensions: { code: "NOT_FOUND" } });
-      if (!auth.canUpdateTodo(user, todo)) forbidden();
+      if (!auth.canEditChecklist(user, todo)) forbidden();
       return todoService.addChecklistItem(todoId, { label, description });
     },
 
@@ -86,7 +97,7 @@ const resolvers = {
       const user = requireUser(context);
       const todo = await Todo.findById(todoId);
       if (!todo) throw new GraphQLError("Todo not found", { extensions: { code: "NOT_FOUND" } });
-      if (!auth.canUpdateTodo(user, todo)) forbidden();
+      if (!auth.canEditChecklist(user, todo)) forbidden();
       return todoService.updateChecklistItem(todoId, itemId, { label, description, checked });
     },
 
@@ -94,7 +105,7 @@ const resolvers = {
       const user = requireUser(context);
       const todo = await Todo.findById(todoId);
       if (!todo) throw new GraphQLError("Todo not found", { extensions: { code: "NOT_FOUND" } });
-      if (!auth.canUpdateTodo(user, todo)) forbidden();
+      if (!auth.canUpdateTodo(user, todo)) forbidden("Nur der Eigentümer kann Checklistenpunkte löschen");
       return todoService.deleteChecklistItem(todoId, itemId);
     },
 
@@ -110,6 +121,48 @@ const resolvers = {
       );
       pubsub.publish(EVENTS.TODO_UPDATED, { todoUpdated: updated });
       return updated;
+    },
+
+    addCollaborator: async (_, { todoId, userId }, context) => {
+      const user = requireUser(context);
+      const todo = await Todo.findById(todoId);
+      if (!todo) throw new GraphQLError("Todo not found", { extensions: { code: "NOT_FOUND" } });
+      if (!auth.canManageCollaborators(user, todo)) forbidden("Nur der Eigentümer kann Mitarbeiter hinzufügen");
+      const target = await User.findById(userId);
+      if (!target) throw new GraphQLError("User not found", { extensions: { code: "NOT_FOUND" } });
+      const updated = await Todo.findByIdAndUpdate(
+        todoId,
+        { $addToSet: { collaborators: userId } },
+        { returnDocument: "after" }
+      );
+      pubsub.publish(EVENTS.TODO_UPDATED, { todoUpdated: updated });
+      return updated;
+    },
+
+    removeCollaborator: async (_, { todoId, userId }, context) => {
+      const user = requireUser(context);
+      const todo = await Todo.findById(todoId);
+      if (!todo) throw new GraphQLError("Todo not found", { extensions: { code: "NOT_FOUND" } });
+      if (!auth.canManageCollaborators(user, todo)) forbidden("Nur der Eigentümer kann Mitarbeiter entfernen");
+      const updated = await Todo.findByIdAndUpdate(
+        todoId,
+        { $pull: { collaborators: userId } },
+        { returnDocument: "after" }
+      );
+      pubsub.publish(EVENTS.TODO_UPDATED, { todoUpdated: updated });
+      return updated;
+    },
+
+    setUserRole: async (_, { userId, role }, context) => {
+      const user = requireUser(context);
+      if (!auth.canManageUsers(user)) forbidden("Nur Admins können Rollen vergeben");
+      const target = await User.findByIdAndUpdate(
+        userId,
+        { role },
+        { returnDocument: "after" }
+      );
+      if (!target) throw new GraphQLError("User not found", { extensions: { code: "NOT_FOUND" } });
+      return target;
     },
 
     deleteAttachment: async (_, { todoId, attachmentId }, context) => {
@@ -157,6 +210,9 @@ const resolvers = {
     },
   },
 
+  User: {
+    id: (user) => user._id.toString(),
+  },
   Todo: {
     id: (todo) => todo._id.toString(),
     dueDate: (todo) => todo.dueDate?.toISOString() ?? null,
