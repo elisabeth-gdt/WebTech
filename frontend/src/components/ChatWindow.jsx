@@ -1,55 +1,56 @@
 import { useEffect, useState } from 'react';
 import { ChatClient } from '../chat.js';
 import { saveMessages } from '../db.js';
+import { useAuth } from '../AuthContext';
 
-export function ChatWindow({ todoId, onClose }) {
+export function ChatWindow({ todoId, ownerId, moderatorIds = [], onClose }) {
+  const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [author, setAuthor] = useState('Anonym');
   const [client, setClient] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
 
+  const canDelete =
+    user?.role === 'admin' ||
+    (ownerId && String(ownerId) === String(user?.id)) ||
+    moderatorIds.some((m) => String(m) === String(user?.id));
+
   useEffect(() => {
     let isMounted = true;
 
-    // ChatClient mit Callback erstellen
-    const chatClient = new ChatClient(todoId, (msg) => {
-      if (isMounted) {
-        setMessages(prev => {
-          if (prev.some(m => m._id === msg._id)) return prev;
-          return [...prev, msg];
-        });
-        saveMessages([msg]);
+    const chatClient = new ChatClient(
+      todoId,
+      (msg) => {
+        if (isMounted) {
+          setMessages(prev => prev.some(m => m._id === msg._id) ? prev : [...prev, msg]);
+          saveMessages([msg]);
+        }
+      },
+      (messageId) => {
+        if (isMounted) {
+          setMessages(prev => prev.filter(m => String(m._id) !== String(messageId)));
+        }
       }
-    });
-    
-    // WebSocket-Status-Handler
-    chatClient.ws.onopen = () => {
-      if (isMounted) setIsConnected(true);
-    };
+    );
 
-    chatClient.ws.onclose = () => {
-      if (isMounted) setIsConnected(false);
-    };
-    
+    chatClient.ws.onopen  = () => { if (isMounted) setIsConnected(true); };
+    chatClient.ws.onclose = () => { if (isMounted) setIsConnected(false); };
+
     setClient(chatClient);
-
-    return () => {
-      isMounted = false;
-      chatClient?.disconnect();
-    };
+    return () => { isMounted = false; chatClient?.disconnect(); };
   }, [todoId]);
 
   const handleSend = (e) => {
     e.preventDefault();
-    if (!isConnected) {
-      alert('Nicht verbunden!');
-      return;
-    }
+    if (!isConnected) { alert('Nicht verbunden!'); return; }
     if (!input.trim()) return;
-    
     client?.send(author || 'Anonym', input);
     setInput('');
+  };
+
+  const handleDelete = (messageId) => {
+    client?.deleteMessage(messageId);
   };
 
   return (
@@ -65,14 +66,22 @@ export function ChatWindow({ todoId, onClose }) {
 
       <ul style={{ listStyle: 'none', height: '200px', overflowY: 'auto', border: '1px solid #e5e7eb', padding: '8px', marginBottom: '12px', backgroundColor: 'white', borderRadius: '6px' }}>
         {messages.map((msg, i) => (
-          <li key={msg._id || i} style={{ marginBottom: '8px', padding: '8px', backgroundColor: '#f3f4f6', borderRadius: '4px' }}>
-            <strong>{msg.author || 'Anonym'}:</strong> {msg.text}
+          <li key={msg._id || i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px', padding: '8px', backgroundColor: '#f3f4f6', borderRadius: '4px', gap: '8px' }}>
+            <span><strong>{msg.author || 'Anonym'}:</strong> {msg.text}</span>
+            {canDelete && (
+              <button
+                onClick={() => handleDelete(msg._id)}
+                style={{ background: '#dc2626', color: 'white', border: 'none', padding: '2px 7px', cursor: 'pointer', borderRadius: '4px', fontSize: '0.75rem', flexShrink: 0 }}
+              >
+                ✕
+              </button>
+            )}
           </li>
         ))}
       </ul>
 
       <form onSubmit={handleSend} style={{ display: 'flex', gap: '8px' }}>
-        <input 
+        <input
           type="text"
           value={author}
           onChange={(e) => setAuthor(e.target.value)}
@@ -80,7 +89,7 @@ export function ChatWindow({ todoId, onClose }) {
           maxLength={30}
           style={{ flex: 0.3, padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }}
         />
-        <input 
+        <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}

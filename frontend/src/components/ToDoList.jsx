@@ -3,6 +3,7 @@ import { useMutation, useQuery, useSubscription } from '@apollo/client/react'
 import { ChatWindow } from './ChatWindow'
 import { TodoDetailView } from './TodoDetailView'
 import { EditView } from './EditView'
+import { AdminPanel } from './AdminPanel'
 import UserMenu from '../auth/UserMenu'
 import { useAuth } from '../AuthContext'
 import {
@@ -21,6 +22,7 @@ function emptyTodoForm() {
 
 export function TodoList() {
   const { user: currentUser } = useAuth()
+  const [showAdminPanel, setShowAdminPanel] = useState(false)
   const [status, setStatus] = useState('')
   const [tag, setTag] = useState('')
   const [priority, setPriority] = useState('')
@@ -133,8 +135,20 @@ export function TodoList() {
           <h1>To-Do Übersicht</h1>
           <p>GraphQL-Frontend mit Live-Updates</p>
         </div>
-        <UserMenu />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {currentUser?.role === 'admin' && (
+            <button
+              onClick={() => setShowAdminPanel(true)}
+              style={{ background: '#7c3aed', color: 'white', border: 'none', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.9rem' }}
+            >
+              Admin
+            </button>
+          )}
+          <UserMenu />
+        </div>
       </header>
+
+      {showAdminPanel && <AdminPanel onClose={() => setShowAdminPanel(false)} />}
 
       <section className="todo-form-panel">
         <h2>Neues To-Do</h2>
@@ -229,7 +243,7 @@ export function TodoList() {
           return (
             <div key={todoId} style={{ border: '2px solid #8b5cf6', borderRadius: '8px', padding: '12px' }}>
               <h3 style={{ margin: '0 0 12px 0' }}>💬 Chat: {todo?.title}</h3>
-              <ChatWindow todoId={todoId} onClose={() => setOpenChats((prev) => { const next = new Set(prev); next.delete(todoId); return next })} />
+              <ChatWindow todoId={todoId} ownerId={todo?.ownerId} moderatorIds={todo?.moderators ?? []} onClose={() => setOpenChats((prev) => { const next = new Set(prev); next.delete(todoId); return next })} />
             </div>
           )
         })}

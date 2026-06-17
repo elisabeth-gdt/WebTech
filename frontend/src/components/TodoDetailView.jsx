@@ -11,6 +11,9 @@ import {
   DELETE_ATTACHMENT,
   ADD_COLLABORATOR,
   REMOVE_COLLABORATOR,
+  ADD_TODO_MODERATOR,
+  REMOVE_TODO_MODERATOR,
+  DELETE_COMMENT,
   TODO_UPDATED,
   TODO_DELETED,
 } from '../graphql/todos'
@@ -46,6 +49,9 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
   const [deleteAttachment] = useMutation(DELETE_ATTACHMENT)
   const [addCollaborator] = useMutation(ADD_COLLABORATOR)
   const [removeCollaborator] = useMutation(REMOVE_COLLABORATOR)
+  const [addTodoModerator] = useMutation(ADD_TODO_MODERATOR)
+  const [removeTodoModerator] = useMutation(REMOVE_TODO_MODERATOR)
+  const [deleteComment] = useMutation(DELETE_COMMENT)
 
   const [commentForm, setCommentForm] = useState({ author: '', text: '' })
   const [checklistForm, setChecklistForm] = useState({ label: '', description: '' })
@@ -72,6 +78,9 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
 
   const todo = data.todo
   const isOwner = currentUser && String(todo.ownerId) === String(currentUser.id)
+  const moderatorIds = todo.moderators ?? []
+  const isTodoModerator = currentUser && moderatorIds.some((m) => String(m) === String(currentUser.id))
+  const canDeleteComments = isOwner || isTodoModerator || currentUser?.role === 'admin'
   const allUsers = usersData?.users ?? []
   const collaboratorIds = todo.collaborators ?? []
   const nonCollaborators = allUsers.filter(
@@ -144,10 +153,16 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
     const formData = new FormData()
     formData.append('file', file)
     try {
+      const token = localStorage.getItem('auth_token')
       const response = await fetch(`http://localhost:4000/files/upload/${todoId}`, {
         method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       })
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        throw new Error(err.error || `Upload fehlgeschlagen (${response.status})`)
+      }
       const { filename, originalname, url } = await response.json()
       await addAttachment({ variables: { todoId, filename, originalname, url } })
       await refetch()
@@ -186,6 +201,29 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
     }
   }
 
+  const handleAddTodoModerator = async (userId) => {
+    try {
+      await addTodoModerator({ variables: { todoId, userId } })
+      await refetch()
+    } catch (err) { setMutationError(err.message) }
+  }
+
+  const handleRemoveTodoModerator = async (userId) => {
+    try {
+      await removeTodoModerator({ variables: { todoId, userId } })
+      await refetch()
+    } catch (err) { setMutationError(err.message) }
+  }
+
+  const handleDeleteComment = async (commentId) => {
+    try {
+      await deleteComment({ variables: { todoId, commentId } })
+      await refetch()
+    } catch (err) {
+      setMutationError(err.message)
+    }
+  }
+
   return (
     <div className="detail-panel">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -214,7 +252,7 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
 
       <h3>Mitarbeiter</h3>
       <ul style={{ listStyle: 'none', padding: 0 }}>
-        {/* Owner immer zuerst */}
+        {/* Owner */}
         {(() => {
           const owner = allUsers.find((x) => String(x.id) === String(todo.ownerId))
           return (
@@ -226,31 +264,51 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
             </li>
           )
         })()}
-        {/* Mitarbeiter */}
-        {collaboratorIds.map((uid) => {
+
+        {/* Moderatoren */}
+        {moderatorIds.map((uid) => {
           const u = allUsers.find((x) => String(x.id) === String(uid))
           return (
-            <li key={uid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'rgba(255,255,255,0.6)', borderRadius: '10px', marginBottom: '6px' }}>
-              <span>{u ? (u.displayName || u.email) : (allUsers.length === 0 ? `Nutzer (ID: ${uid})` : uid)}</span>
+            <li key={`mod-${uid}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'rgba(255,255,255,0.6)', borderRadius: '10px', marginBottom: '6px' }}>
+              <span>
+                {u ? (u.displayName || u.email) : uid}
+                <span style={{ marginLeft: '8px', background: '#7c3aed', color: 'white', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.75rem' }}>Moderator</span>
+              </span>
               {isOwner && (
-                <button
-                  onClick={() => handleRemoveCollaborator(uid)}
-                  style={{ background: '#dc2626', color: 'white', border: 'none', padding: '4px 8px', cursor: 'pointer', borderRadius: '6px', fontSize: '0.85rem' }}
-                >
-                  Entfernen
-                </button>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button onClick={() => handleRemoveTodoModerator(uid)} style={{ background: '#6b7280', color: 'white', border: 'none', padding: '4px 8px', cursor: 'pointer', borderRadius: '6px', fontSize: '0.8rem' }}>Degradieren</button>
+                  <button onClick={() => handleRemoveCollaborator(uid)} style={{ background: '#dc2626', color: 'white', border: 'none', padding: '4px 8px', cursor: 'pointer', borderRadius: '6px', fontSize: '0.8rem' }}>Entfernen</button>
+                </div>
+              )}
+            </li>
+          )
+        })}
+
+        {/* Collaboratoren (keine Moderatoren) */}
+        {collaboratorIds.filter((uid) => !moderatorIds.some((m) => String(m) === String(uid))).map((uid) => {
+          const u = allUsers.find((x) => String(x.id) === String(uid))
+          return (
+            <li key={`col-${uid}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'rgba(255,255,255,0.6)', borderRadius: '10px', marginBottom: '6px' }}>
+              <span>{u ? (u.displayName || u.email) : uid}</span>
+              {isOwner && (
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button onClick={() => handleAddTodoModerator(uid)} style={{ background: '#7c3aed', color: 'white', border: 'none', padding: '4px 8px', cursor: 'pointer', borderRadius: '6px', fontSize: '0.8rem' }}>Moderator</button>
+                  <button onClick={() => handleRemoveCollaborator(uid)} style={{ background: '#dc2626', color: 'white', border: 'none', padding: '4px 8px', cursor: 'pointer', borderRadius: '6px', fontSize: '0.8rem' }}>Entfernen</button>
+                </div>
               )}
             </li>
           )
         })}
       </ul>
+
+      {/* Nutzer hinzufügen */}
       {isOwner && (
         <div style={{ marginTop: '10px' }}>
           {usersError && <p style={{ color: '#dc2626', fontSize: '0.85rem' }}>Fehler beim Laden der Nutzer: {usersError.message}</p>}
           <input
             value={userSearch}
             onChange={(e) => { setUserSearch(e.target.value); setSelectedUserId('') }}
-            placeholder="Name oder E-Mail suchen..."
+            placeholder="Mitarbeiter suchen (Name oder E-Mail)..."
             style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box' }}
           />
           {userSearch.trim().length > 0 && (
@@ -259,17 +317,7 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
                 <li style={{ padding: '10px', color: '#999', fontSize: '0.9rem' }}>Kein Nutzer gefunden</li>
               )}
               {searchResults.map((u) => (
-                <li
-                  key={u.id}
-                  onClick={() => setSelectedUserId(u.id)}
-                  style={{
-                    padding: '10px',
-                    cursor: 'pointer',
-                    background: selectedUserId === u.id ? '#dbeafe' : 'white',
-                    borderBottom: '1px solid #f3f4f6',
-                    fontSize: '0.9rem',
-                  }}
-                >
+                <li key={u.id} onClick={() => setSelectedUserId(u.id)} style={{ padding: '10px', cursor: 'pointer', background: selectedUserId === u.id ? '#dbeafe' : 'white', borderBottom: '1px solid #f3f4f6', fontSize: '0.9rem' }}>
                   <strong>{u.displayName || u.email}</strong>
                   {u.displayName && <span style={{ color: '#6b7280', marginLeft: '8px' }}>{u.email}</span>}
                 </li>
@@ -277,10 +325,7 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
             </ul>
           )}
           {selectedUserId && (
-            <button
-              onClick={handleAddCollaborator}
-              style={{ marginTop: '8px', background: '#10b981', color: 'white', border: 'none', padding: '8px 14px', cursor: 'pointer', borderRadius: '8px' }}
-            >
+            <button onClick={handleAddCollaborator} style={{ marginTop: '8px', background: '#10b981', color: 'white', border: 'none', padding: '8px 14px', cursor: 'pointer', borderRadius: '8px' }}>
               {(() => {
                 const u = allUsers.find((x) => String(x.id) === String(selectedUserId))
                 return `${u?.displayName || u?.email || 'Nutzer'} hinzufügen`
@@ -374,11 +419,21 @@ export function TodoDetailView({ todoId, onClose, onEdit }) {
       {todo.comments?.length ? (
         <ul>
           {todo.comments.map((comment) => (
-            <li key={comment.id} style={{ background: 'rgba(255,255,255,0.6)', padding: '10px', borderRadius: '10px', marginBottom: '8px', listStyle: 'none' }}>
-              <strong>{comment.author || 'Anonym'}:</strong> {comment.text}
-              <small style={{ display: 'block', marginTop: '4px', color: '#999' }}>
-                {formatDate(comment.createdAt)}
-              </small>
+            <li key={comment.id} style={{ background: 'rgba(255,255,255,0.6)', padding: '10px', borderRadius: '10px', marginBottom: '8px', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+              <div style={{ flex: 1 }}>
+                <strong>{comment.author || 'Anonym'}:</strong> {comment.text}
+                <small style={{ display: 'block', marginTop: '4px', color: '#999' }}>
+                  {formatDate(comment.createdAt)}
+                </small>
+              </div>
+              {canDeleteComments && (
+                <button
+                  onClick={() => handleDeleteComment(comment.id)}
+                  style={{ background: '#dc2626', color: 'white', border: 'none', padding: '3px 8px', cursor: 'pointer', borderRadius: '6px', fontSize: '0.8rem', flexShrink: 0 }}
+                >
+                  ✕
+                </button>
+              )}
             </li>
           ))}
         </ul>

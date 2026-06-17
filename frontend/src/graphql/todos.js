@@ -13,6 +13,7 @@ export const GET_TODOS = gql`
       updatedAt
       ownerId
       collaborators
+      moderators
     }
   }
 `
@@ -30,6 +31,7 @@ export const TODO_DETAIL = gql`
       updatedAt
       ownerId
       collaborators
+      moderators
       isPublic
       attachments {
         id: id
@@ -66,6 +68,7 @@ export const GET_USERS = gql`
       id
       email
       displayName
+      role
     }
   }
 `
@@ -187,6 +190,49 @@ export const DELETE_ATTACHMENT = gql`
         originalname
         url
       }
+    }
+  }
+`
+
+export const SET_USER_ROLE = gql`
+  mutation SetUserRole($userId: ID!, $role: Role!) {
+    setUserRole(userId: $userId, role: $role) {
+      id
+      email
+      displayName
+      role
+    }
+  }
+`
+
+export const DELETE_COMMENT = gql`
+  mutation DeleteComment($todoId: ID!, $commentId: ID!) {
+    deleteComment(todoId: $todoId, commentId: $commentId) {
+      id
+      comments {
+        id
+        text
+        author
+        createdAt
+      }
+    }
+  }
+`
+
+export const ADD_TODO_MODERATOR = gql`
+  mutation AddTodoModerator($todoId: ID!, $userId: ID!) {
+    addTodoModerator(todoId: $todoId, userId: $userId) {
+      id
+      moderators
+    }
+  }
+`
+
+export const REMOVE_TODO_MODERATOR = gql`
+  mutation RemoveTodoModerator($todoId: ID!, $userId: ID!) {
+    removeTodoModerator(todoId: $todoId, userId: $userId) {
+      id
+      moderators
     }
   }
 `

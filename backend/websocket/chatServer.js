@@ -1,8 +1,24 @@
 // backend/websocket/chatServer.js
 const { WebSocketServer } = require('ws');
+const jwt = require('jsonwebtoken');
 const Message = require('../models/Message');
+const Todo = require('../models/Todo');
+const { JWT_SECRET } = require('../middleware/auth');
 
 const rooms = new Map();
+
+function verifyToken(token) {
+  try { return jwt.verify(token, JWT_SECRET); } catch { return null; }
+}
+
+async function canDeleteMessage(user, todoId) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  const todo = await Todo.findById(todoId).select('ownerId moderators');
+  if (!todo) return false;
+  if (String(todo.ownerId) === String(user.id)) return true;
+  return todo.moderators?.some((m) => String(m) === String(user.id));
+}
 
 function setupChatHandler() {
   const wss = new WebSocketServer({ noServer: true });
@@ -11,6 +27,8 @@ function setupChatHandler() {
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url, 'http://localhost');
     const todoId = url.searchParams.get('todoId');
+    const token  = url.searchParams.get('token');
+    const user   = verifyToken(token);
 
     if (!todoId) { ws.close(); return; }
 
@@ -22,10 +40,22 @@ function setupChatHandler() {
         ws.send(JSON.stringify({ type: 'HISTORY', messages }));
       });
 
-    ws.on('message', async (data) => {
-      const { author, text } = JSON.parse(data);
-      const msg = await Message.create({ todoId, author, text });
+    ws.on('message', async (raw) => {
+      const data = JSON.parse(raw);
 
+      if (data.type === 'DELETE_MESSAGE') {
+        if (!await canDeleteMessage(user, todoId)) return;
+        await Message.findByIdAndDelete(data.messageId);
+        const payload = JSON.stringify({ type: 'MESSAGE_DELETED', messageId: data.messageId });
+        for (const client of rooms.get(todoId)) {
+          if (client.readyState === 1) client.send(payload);
+        }
+        return;
+      }
+
+      // Standard: neue Nachricht senden
+      const { author, text } = data;
+      const msg = await Message.create({ todoId, author, text });
       const payload = JSON.stringify({ type: 'NEW_MESSAGE', message: msg });
       for (const client of rooms.get(todoId)) {
         if (client.readyState === 1) client.send(payload);

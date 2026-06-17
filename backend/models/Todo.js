@@ -63,6 +63,12 @@ const TodoSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
+    moderators: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     isPublic: { type: Boolean, default: false },
   },
   { timestamps: true },

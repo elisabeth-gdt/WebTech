@@ -105,7 +105,7 @@ const resolvers = {
       const user = requireUser(context);
       const todo = await Todo.findById(todoId);
       if (!todo) throw new GraphQLError("Todo not found", { extensions: { code: "NOT_FOUND" } });
-      if (!auth.canUpdateTodo(user, todo)) forbidden("Nur der Eigentümer kann Checklistenpunkte löschen");
+      if (!auth.canDeleteChecklistItem(user, todo)) forbidden("Nur Owner, Admin oder Todo-Moderator können Checklistenpunkte löschen");
       return todoService.deleteChecklistItem(todoId, itemId);
     },
 
@@ -117,6 +117,52 @@ const resolvers = {
       const updated = await Todo.findByIdAndUpdate(
         todoId,
         { $push: { attachments: { filename, originalname, url } } },
+        { returnDocument: "after" }
+      );
+      pubsub.publish(EVENTS.TODO_UPDATED, { todoUpdated: updated });
+      return updated;
+    },
+
+    deleteComment: async (_, { todoId, commentId }, context) => {
+      const user = requireUser(context);
+      const todo = await Todo.findById(todoId);
+      if (!todo) throw new GraphQLError("Todo not found", { extensions: { code: "NOT_FOUND" } });
+      const comment = todo.comments.id(commentId);
+      if (!comment) throw new GraphQLError("Comment not found", { extensions: { code: "NOT_FOUND" } });
+      if (!auth.canDeleteComment(user, comment, todo)) forbidden("Kein Recht diesen Kommentar zu löschen");
+      const updated = await Todo.findByIdAndUpdate(
+        todoId,
+        { $pull: { comments: { _id: commentId } } },
+        { returnDocument: "after" }
+      );
+      pubsub.publish(EVENTS.TODO_UPDATED, { todoUpdated: updated });
+      return updated;
+    },
+
+    addTodoModerator: async (_, { todoId, userId }, context) => {
+      const user = requireUser(context);
+      const todo = await Todo.findById(todoId);
+      if (!todo) throw new GraphQLError("Todo not found", { extensions: { code: "NOT_FOUND" } });
+      if (!auth.canManageTodoModerators(user, todo)) forbidden("Nur der Eigentümer kann Moderatoren ernennen");
+      const target = await User.findById(userId);
+      if (!target) throw new GraphQLError("User not found", { extensions: { code: "NOT_FOUND" } });
+      const updated = await Todo.findByIdAndUpdate(
+        todoId,
+        { $addToSet: { moderators: userId } },
+        { returnDocument: "after" }
+      );
+      pubsub.publish(EVENTS.TODO_UPDATED, { todoUpdated: updated });
+      return updated;
+    },
+
+    removeTodoModerator: async (_, { todoId, userId }, context) => {
+      const user = requireUser(context);
+      const todo = await Todo.findById(todoId);
+      if (!todo) throw new GraphQLError("Todo not found", { extensions: { code: "NOT_FOUND" } });
+      if (!auth.canManageTodoModerators(user, todo)) forbidden("Nur der Eigentümer kann Moderatoren entfernen");
+      const updated = await Todo.findByIdAndUpdate(
+        todoId,
+        { $pull: { moderators: userId } },
         { returnDocument: "after" }
       );
       pubsub.publish(EVENTS.TODO_UPDATED, { todoUpdated: updated });
@@ -159,7 +205,7 @@ const resolvers = {
       const target = await User.findByIdAndUpdate(
         userId,
         { role },
-        { returnDocument: "after" }
+        { returnDocument: 'after' }
       );
       if (!target) throw new GraphQLError("User not found", { extensions: { code: "NOT_FOUND" } });
       return target;
@@ -218,6 +264,14 @@ const resolvers = {
     dueDate: (todo) => todo.dueDate?.toISOString() ?? null,
     createdAt: (todo) => todo.createdAt.toISOString(),
     updatedAt: (todo) => todo.updatedAt.toISOString(),
+  },
+  Comment: {
+    id: (comment) => comment._id.toString(),
+    createdAt: (comment) => comment.createdAt?.toISOString() ?? null,
+  },
+  Attachment: {
+    id: (att) => att._id.toString(),
+    uploadedAt: (att) => att.uploadedAt?.toISOString() ?? null,
   },
   ChecklistItem: {
     id: (item) => item._id.toString(),

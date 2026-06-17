@@ -13,6 +13,7 @@ type Todo {
   attachments: [Attachment]
   ownerId: ID
   collaborators: [ID]
+  moderators: [ID]
   isPublic: Boolean
 }
 
@@ -99,8 +100,11 @@ type Mutation {
     url: String!
   ): Todo!
   deleteAttachment(todoId: ID!, attachmentId: ID!): Todo!
+  deleteComment(todoId: ID!, commentId: ID!): Todo!
   addCollaborator(todoId: ID!, userId: ID!): Todo!
   removeCollaborator(todoId: ID!, userId: ID!): Todo!
+  addTodoModerator(todoId: ID!, userId: ID!): Todo!
+  removeTodoModerator(todoId: ID!, userId: ID!): Todo!
   setUserRole(userId: ID!, role: Role!): User!
 }
 
