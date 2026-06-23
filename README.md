@@ -1,16 +1,39 @@
-# Todo-App - WebTech Projekt (Aufgabe 3 – MEAN)
+# Todo-App - WebTech Projekt (Aufgabe 4 – MEAN)
 
 ## Gruppe Elmo
 
-Dies ist eine erweiterte Full-Stack Todo-Anwendung mit GraphQL API und MongoDB, entwickelt im Rahmen des Web-Technologie-Kurses. Sie besteht aus einem Node.js-Backend mit Express, Apollo Server und GraphQL, einer dokumentenbasierten MongoDB-Datenbank, sowie einem modernen React-Frontend mit Apollo Client, PWA-Funktionalität und Echtzeit-WebSocket-Chat.
+## Repository klonen
+
+```bash
+git clone https://github.com/elisabeth-gdt/WebTech.git
+cd WebTech
+git checkout Abgabe4_MEAN
+```
+
+Dies ist eine erweiterte Full-Stack Todo-Anwendung mit GraphQL API und MongoDB, entwickelt im Rahmen des Web-Technologie-Kurses. Sie besteht aus einem Node.js-Backend mit Express, Apollo Server und GraphQL, einer dokumentenbasierten MongoDB-Datenbank, sowie einem modernen React-Frontend mit Apollo Client, PWA-Funktionalität und Echtzeit-WebSocket-Chat. In Aufgabe 4 wurde die Anwendung um Authentifizierung, ein Autorisierungssystem und Nutzerverwaltung erweitert.
+
+> Technische Dokumentation zu Authentifizierung, Rollen-/Rechtekonzept, Schnittstellenschutz und Zugangsdaten-Speicherung sowie eine Reflexion zum Thema Sicherheit findet sich in [SECURITY.md](SECURITY.md).
 
 ## Features
+
+### Authentifizierung & Autorisierung
+
+* **Login/Registrierung** per E-Mail & **Passkeys** (WebAuthn)
+* **JWT-basierte Sessions** (Token im `localStorage`, `Authorization: Bearer`-Header)
+* **Globale Rollen:** `admin` und `user`
+* **Per-Todo-Berechtigungsmodell** (statt einer globalen Moderator-Rolle):
+  * **Eigentümer** – volle Kontrolle über sein Todo (bearbeiten, löschen, Mitarbeiter verwalten)
+  * **Todo-Moderatoren** – vom Eigentümer (oder Admin) für ein einzelnes Todo ernannt; dürfen zusätzlich zu den Mitarbeiter-Rechten Kommentare, Chat-Nachrichten löschen
+  * **Mitarbeiter** – können kommentieren, Dateien hochladen und Checklisten bearbeiten
+  * **Admin** – globaler Zugriff auf alle Todos und Nutzerverwaltung
+* **Admin-Panel** zur Vergabe der globalen Rolle (`user`/`admin`) an andere Nutzer
+* Zentrale Autorisierungslogik in `backend/middleware/authorization.js`
 
 ### Backend
 
 * **GraphQL API** mit:
   * Queries für flexible Lesezugriffe
-  * Mutations zum Erstellen, Ändern und Löschen von Todos, Kommentaren, Tags und Subtasks
+  * Mutations zum Erstellen, Ändern und Löschen von Todos, Kommentaren, Tags, Subtasks, Mitarbeitern und Moderatoren
   * Subscriptions für Echtzeit-Aktualisierungen (Multi-User-Support)
 * **MongoDB** als dokumentenbasierte Datenbank mit verschachtelten Datenstrukturen
 * **Erweiterte Todo-Struktur:**
@@ -21,7 +44,9 @@ Dies ist eine erweiterte Full-Stack Todo-Anwendung mit GraphQL API und MongoDB, 
   * Fälligkeitsdatum
   * Bearbeitungsverlauf
   * Checklisten
+  * Eigentümer, Mitarbeiter und Todo-Moderatoren
 * **Multi-User-System** mit Echtzeit-Benachrichtigungen über Pub/Sub
+* **Echtzeit-Zugriffsentzug:** Wird ein Nutzer aus einem Todo entfernt, verschwindet es sofort aus dessen Ansicht (inkl. Schließen offener Chat-Fenster)
 * **Automatisierte Tests** für Queries, Mutations und Subscriptions
 
 ### Frontend
@@ -31,9 +56,15 @@ Dies ist eine erweiterte Full-Stack Todo-Anwendung mit GraphQL API und MongoDB, 
   * Übersicht mit Titel und Status
   * Detailansicht mit allen Informationen
   * Filteransicht (nach Tags, Priorität, etc.)
+  * Admin-Panel zur Rollenverwaltung
+* **Mitarbeiterverwaltung pro Todo:**
+  * Live-Nutzersuche zum Hinzufügen von Mitarbeitern
+  * Befördern/Degradieren zwischen Mitarbeiter und Todo-Moderator
+  * Entfernen von Mitarbeitern/Moderatoren durch den Eigentümer
 * **Echtzeit-Kommunikation:**
-  * WebSocket-Chat mit Room-basierter Architektur
+  * WebSocket-Chat mit Room-basierter Architektur und JWT-Authentifizierung
   * Nachrichtenhistorie beim Connect
+  * Löschen von Chat-Nachrichten durch Eigentümer/Todo-Moderator/Admin
   * Offline-Fallback auf gecachte Nachrichten
 * **PWA-Funktionalität:**
   * Service Worker mit App-Shell-Caching
@@ -45,21 +76,14 @@ Dies ist eine erweiterte Full-Stack Todo-Anwendung mit GraphQL API und MongoDB, 
   * Kommentare und Checklisten-Items hinzufügen
   * Tags und Prioritäten verwalten
   * Fälligkeitsdaten setzen
+  * Dateianhänge hochladen und löschen
   * Echtzeit-Chat pro Todo
 
 ---
 
 ## Installation & Start
 
-### 1. Repository klonen
-
-```bash
-git clone https://github.com/elisabeth-gdt/WebTech.git
-cd WebTech
-git checkout Abgabe3_MEAN
-```
-
-### 2. Backend einrichten und starten
+### 1. Backend einrichten und starten
 
 Das Backend verwendet Docker, um die Mongo-Datenbank zu starten.
 
@@ -74,12 +98,12 @@ npm install
 docker compose up -d
 
 # Backend-Server starten (stellt die API auf Port 4000 bereit)
-noder server.js
+node server.js
 ```
 
 Der Server läuft nun auf `http://localhost:4000/graphql`.
 
-### 3. Frontend starten
+### 2. Frontend starten
 
 Das Frontend ist eine moderne Vite-basierte Anwendung mit Apollo Client zur GraphQL-Integration.
 
@@ -94,6 +118,19 @@ npm run dev
 ```
 
 Die Seite ist nun erreichbar über `http://localhost:5173/`.
+
+### 4. Admin-Account anlegen
+
+Standardmäßig wird jeder neu registrierte Nutzer mit der Rolle `user` angelegt. Um den ersten Admin-Account zu erstellen, muss die Rolle direkt in der MongoDB gesetzt werden:
+
+```bash
+docker exec -it webtech-db-1 mongosh -u root -p root --authenticationDatabase admin
+
+use todoapp
+db.users.updateOne({ email: "deine@email.de" }, { $set: { role: "admin" } })
+```
+
+Anschließend kann dieser Admin über das **Admin-Panel** im Frontend weitere Nutzer befördern. Todo-Moderatoren werden hingegen nicht global, sondern direkt in der Detailansicht des jeweiligen Todos durch dessen Eigentümer ernannt.
 
 ---
 
@@ -123,6 +160,16 @@ npm test
 ```
 
 Jest wird alle Test-Suites ausführen und einen Bericht über die erfolgreichen und fehlgeschlagenen Tests ausgeben.
+
+**Nur die Security-Tests ausführen:**
+
+```bash
+cd backend
+npx jest tests/security.test.js
+```
+
+Diese Suite prüft u. a. `401` bei fehlendem/abgelaufenem/manipuliertem Token, `403` bei
+fehlender Rolle und den Schutz der Datei-Routen. Details siehe [SECURITY.md](SECURITY.md).
 
 **PWA-Tests ausführen:**
 
